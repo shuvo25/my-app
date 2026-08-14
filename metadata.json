@@ -1,0 +1,7 @@
+{
+  "name": "StreamVault",
+  "description": "Full-stack media streaming & background video downloader with multi-resolution playback, real-time search, and category discovery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
