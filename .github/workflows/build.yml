@@ -25,16 +25,19 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Ensure gradlew exists and is executable
-        run: |
-          if [ ! -f "gradlew" ]; then
-            gradle wrapper
-          fi
-          chmod +x gradlew
+        with:
+          gradle-version: '8.11.1'
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: |
+          chmod +x gradlew 2>/dev/null || true
+          if [ -f "./gradlew" ] && [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Building with Gradle Wrapper..."
+            ./gradlew assembleDebug --no-daemon
+          else
+            echo "Building with Gradle CLI directly..."
+            gradle assembleDebug --no-daemon
+          fi
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
