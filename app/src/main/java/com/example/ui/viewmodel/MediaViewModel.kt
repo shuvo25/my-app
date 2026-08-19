@@ -6,7 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.downloader.VideoDownloadManager
 import com.example.data.local.AppDatabase
 import com.example.data.model.*
+import com.example.data.repository.AuthRepository
+import com.example.data.repository.CommentRepository
 import com.example.data.repository.VideoRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -34,6 +37,7 @@ data class PlayerState(
     val errorMessage: String? = null
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class MediaViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getInstance(application)
     val downloadManager = VideoDownloadManager(application, database.downloadDao())
@@ -42,10 +46,20 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
         database.historyDao(),
         database.bookmarkDao()
     )
+    val authRepository = AuthRepository(application)
+    val commentRepository = CommentRepository()
+
+    // Auth State
+    val authState: StateFlow<AuthState> = authRepository.authState
+    val currentUser: StateFlow<UserSession?> = authRepository.currentUser
+
+    private val _isAuthDialogVisible = MutableStateFlow(false)
+    val isAuthDialogVisible: StateFlow<Boolean> = _isAuthDialogVisible.asStateFlow()
 
     // Navigation State
     private val _currentTab = MutableStateFlow(AppNavTab.HOME)
     val currentTab: StateFlow<AppNavTab> = _currentTab.asStateFlow()
+
 
     // Active Category Filter
     private val _selectedCategory = MutableStateFlow("All")
@@ -101,6 +115,16 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
             if (video != null) repository.isBookmarked(video.id) else flowOf(false)
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // Comments for active detail video
+    val commentsForCurrentVideo: StateFlow<List<CommentItem>> = _selectedDetailVideo
+        .flatMapLatest { video ->
+            if (video != null) commentRepository.getCommentsForVideo(video.id) else flowOf(emptyList())
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val isCloudSyncing: StateFlow<Boolean> = repository.isCloudSyncing
+
 
     init {
         loadVideos()
@@ -226,9 +250,84 @@ class MediaViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleBookmarkCurrentVideo() {
         val video = _selectedDetailVideo.value ?: return
         val currentBookmarked = isCurrentVideoBookmarked.value
+        val user = currentUser.value
         viewModelScope.launch {
-            repository.toggleBookmark(video, currentBookmarked)
+            repository.toggleBookmark(video, currentBookmarked, user)
         }
+    }
+
+    // Authentication Actions
+    fun showAuthDialog() {
+        _isAuthDialogVisible.value = true
+    }
+
+    fun hideAuthDialog() {
+        _isAuthDialogVisible.value = false
+    }
+
+    fun signIn(email: String, password: String, onComplete: ((Boolean) -> Unit)? = null) {
+        viewModelScope.launch {
+            val result = authRepository.signIn(email, password)
+            if (result.isSuccess) {
+                _isAuthDialogVisible.value = false
+                result.getOrNull()?.let { repository.syncBookmarksWithCloud(it) }
+                onComplete?.invoke(true)
+            } else {
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
+    fun signUp(email: String, password: String, fullName: String, onComplete: ((Boolean) -> Unit)? = null) {
+        viewModelScope.launch {
+            val result = authRepository.signUp(email, password, fullName)
+            if (result.isSuccess) {
+                _isAuthDialogVisible.value = false
+                result.getOrNull()?.let { repository.syncBookmarksWithCloud(it) }
+                onComplete?.invoke(true)
+            } else {
+                onComplete?.invoke(false)
+            }
+        }
+    }
+
+    fun loginAsDemoUser() {
+        val demo = authRepository.signInAsDemo()
+        _isAuthDialogVisible.value = false
+        viewModelScope.launch {
+            repository.syncBookmarksWithCloud(demo)
+        }
+    }
+
+    fun signOut() {
+        authRepository.signOut()
+    }
+
+    fun syncCloudBookmarks() {
+        val user = currentUser.value ?: return
+        viewModelScope.launch {
+            repository.syncBookmarksWithCloud(user)
+        }
+    }
+
+    // Comment Actions
+    fun postComment(content: String, onComplete: ((Boolean) -> Unit)? = null) {
+        val video = _selectedDetailVideo.value ?: return
+        val user = currentUser.value ?: UserSession(
+            id = "guest_user",
+            email = "guest@streamvault.app",
+            displayName = "Guest User",
+            avatarUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=120&auto=format&fit=crop&q=80"
+        )
+        viewModelScope.launch {
+            val res = commentRepository.postComment(video.id, user, content)
+            onComplete?.invoke(res.isSuccess)
+        }
+    }
+
+    fun toggleLikeComment(commentId: String) {
+        val video = _selectedDetailVideo.value ?: return
+        commentRepository.toggleLikeComment(video.id, commentId)
     }
 
     // Downloader Actions

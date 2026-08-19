@@ -42,6 +42,8 @@ fun SavedScreen(
     val context = LocalContext.current
     val history by viewModel.watchHistory.collectAsState()
     val bookmarks by viewModel.bookmarks.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+    val isCloudSyncing by viewModel.isCloudSyncing.collectAsState()
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     val tabs = listOf("History (${history.size})", "Bookmarks (${bookmarks.size})")
@@ -65,6 +67,38 @@ fun SavedScreen(
                         if (selectedTabIndex == 0 && history.isNotEmpty()) {
                             TextButton(onClick = { viewModel.clearWatchHistory() }) {
                                 Text("Clear History", color = AmberPrimary, fontWeight = FontWeight.SemiBold)
+                            }
+                        } else if (selectedTabIndex == 1) {
+                            if (currentUser != null) {
+                                IconButton(
+                                    onClick = { viewModel.syncCloudBookmarks() },
+                                    enabled = !isCloudSyncing
+                                ) {
+                                    if (isCloudSyncing) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                            color = AmberPrimary
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudSync,
+                                            contentDescription = "Sync Cloud Bookmarks",
+                                            tint = AmberPrimary
+                                        )
+                                    }
+                                }
+                            } else {
+                                TextButton(onClick = { viewModel.showAuthDialog() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudUpload,
+                                        contentDescription = null,
+                                        tint = CyanAccent,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Sync Cloud", color = CyanAccent, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                                }
                             }
                         }
                     },

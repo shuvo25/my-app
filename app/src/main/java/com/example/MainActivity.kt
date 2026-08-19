@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.components.AddStreamDialog
+import com.example.ui.components.AuthDialog
 import com.example.ui.components.DownloadQualityDialog
 import com.example.ui.screens.*
 import com.example.ui.theme.AmberPrimary
@@ -52,7 +53,11 @@ fun StreamVaultApp(
     val selectedDetailVideo by viewModel.selectedDetailVideo.collectAsState()
     val downloadModalVideo by viewModel.downloadModalVideo.collectAsState()
     val isAddStreamDialogVisible by viewModel.isAddStreamDialogVisible.collectAsState()
+    val isAuthDialogVisible by viewModel.isAuthDialogVisible.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+    val authState by viewModel.authState.collectAsState()
     val activeDownloads by viewModel.activeDownloads.collectAsState()
+
 
     // Handle back button when player is open
     BackHandler(enabled = selectedDetailVideo != null) {
@@ -217,6 +222,19 @@ fun StreamVaultApp(
                     onAddStream = { title, url, cat ->
                         viewModel.addCustomStream(title, url, cat)
                     }
+                )
+            }
+
+            // Supabase Authentication & Profile Modal
+            if (isAuthDialogVisible) {
+                AuthDialog(
+                    currentUser = currentUser,
+                    authState = authState,
+                    onDismiss = { viewModel.hideAuthDialog() },
+                    onSignIn = { email, pass -> viewModel.signIn(email, pass) },
+                    onSignUp = { email, pass, name -> viewModel.signUp(email, pass, name) },
+                    onDemoLogin = { viewModel.loginAsDemoUser() },
+                    onSignOut = { viewModel.signOut() }
                 )
             }
         }

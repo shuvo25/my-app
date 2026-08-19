@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.VideoItem
+import com.example.ui.components.CommentSection
 import com.example.ui.components.VideoCard
 import com.example.ui.components.VideoPlayerView
 import com.example.ui.theme.AmberPrimary
@@ -43,11 +44,14 @@ fun PlayerScreen(
     val context = LocalContext.current
     val playerState by viewModel.playerState.collectAsState()
     val isBookmarked by viewModel.isCurrentVideoBookmarked.collectAsState()
+    val comments by viewModel.commentsForCurrentVideo.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
 
     var isLiked by remember { mutableStateOf(false) }
     var isDisliked by remember { mutableStateOf(false) }
     var isSubscribed by remember { mutableStateOf(false) }
     var isDescriptionExpanded by remember { mutableStateOf(false) }
+
 
     val relatedVideos = remember(video.id) {
         viewModel.repository.getRelatedVideos(video.id)
@@ -312,6 +316,17 @@ fun PlayerScreen(
                             }
                         }
                     }
+                }
+
+                // Interactive Video Comments Section
+                item {
+                    CommentSection(
+                        comments = comments,
+                        currentUser = currentUser,
+                        onPostComment = { content -> viewModel.postComment(content) },
+                        onLikeComment = { commentId -> viewModel.toggleLikeComment(commentId) },
+                        onOpenAuth = { viewModel.showAuthDialog() }
+                    )
                 }
 
                 // Related Videos Header

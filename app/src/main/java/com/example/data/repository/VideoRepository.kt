@@ -4,8 +4,10 @@ import com.example.data.local.BookmarkDao
 import com.example.data.local.DownloadDao
 import com.example.data.local.HistoryDao
 import com.example.data.model.*
+import com.example.data.remote.SupabaseNetworkClient
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 
@@ -15,6 +17,8 @@ class VideoRepository(
     private val bookmarkDao: BookmarkDao
 ) {
     private val _customVideos = MutableStateFlow<List<VideoItem>>(emptyList())
+    private val _isCloudSyncing = MutableStateFlow(false)
+    val isCloudSyncing: StateFlow<Boolean> = _isCloudSyncing.asStateFlow()
 
     // Curated high quality media catalog with diverse resolutions
     private val defaultVideos = listOf(
@@ -304,22 +308,82 @@ class VideoRepository(
     // Bookmarks
     fun isBookmarked(videoId: String): Flow<Boolean> = bookmarkDao.isBookmarked(videoId)
 
-    suspend fun toggleBookmark(video: VideoItem, isCurrentlyBookmarked: Boolean) {
+    suspend fun toggleBookmark(video: VideoItem, isCurrentlyBookmarked: Boolean, userSession: UserSession? = null) {
         if (isCurrentlyBookmarked) {
             bookmarkDao.removeBookmark(video.id)
+            if (userSession?.accessToken != null && !userSession.isDemoAccount) {
+                try {
+                    SupabaseNetworkClient.restService.deleteBookmark(
+                        authHeader = "Bearer ${userSession.accessToken}",
+                        videoId = "eq.${video.id}",
+                        userId = "eq.${userSession.id}"
+                    )
+                } catch (e: Exception) {
+                    // Ignore network failure; Room DB is the local source of truth
+                }
+            }
         } else {
-            bookmarkDao.insertBookmark(
-                BookmarkEntity(
-                    videoId = video.id,
-                    title = video.title,
-                    thumbnailUrl = video.thumbnailUrl,
-                    uploaderName = video.uploaderName,
-                    durationSeconds = video.durationSeconds,
-                    bookmarkedAt = System.currentTimeMillis()
-                )
+            val entity = BookmarkEntity(
+                videoId = video.id,
+                title = video.title,
+                thumbnailUrl = video.thumbnailUrl,
+                uploaderName = video.uploaderName,
+                durationSeconds = video.durationSeconds,
+                bookmarkedAt = System.currentTimeMillis()
             )
+            bookmarkDao.insertBookmark(entity)
+
+            if (userSession?.accessToken != null && !userSession.isDemoAccount) {
+                try {
+                    val dto = RemoteBookmarkDto(
+                        userId = userSession.id,
+                        videoId = video.id,
+                        title = video.title,
+                        thumbnailUrl = video.thumbnailUrl,
+                        uploaderName = video.uploaderName,
+                        durationSeconds = video.durationSeconds
+                    )
+                    SupabaseNetworkClient.restService.addBookmark(
+                        authHeader = "Bearer ${userSession.accessToken}",
+                        bookmark = dto
+                    )
+                } catch (e: Exception) {
+                    // Ignore network failure
+                }
+            }
+        }
+    }
+
+    suspend fun syncBookmarksWithCloud(userSession: UserSession) {
+        if (userSession.isDemoAccount || userSession.accessToken == null) return
+        _isCloudSyncing.value = true
+        try {
+            val response = SupabaseNetworkClient.restService.getBookmarks(
+                authHeader = "Bearer ${userSession.accessToken}",
+                userIdFilter = "eq.${userSession.id}"
+            )
+            if (response.isSuccessful) {
+                val remoteList = response.body().orEmpty()
+                for (remote in remoteList) {
+                    bookmarkDao.insertBookmark(
+                        BookmarkEntity(
+                            videoId = remote.videoId,
+                            title = remote.title,
+                            thumbnailUrl = remote.thumbnailUrl,
+                            uploaderName = remote.uploaderName,
+                            durationSeconds = remote.durationSeconds,
+                            bookmarkedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore offline errors
+        } finally {
+            _isCloudSyncing.value = false
         }
     }
 
     fun getAllBookmarks(): Flow<List<BookmarkEntity>> = bookmarkDao.getAllBookmarks()
 }
+
